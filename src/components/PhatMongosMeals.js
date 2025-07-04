@@ -227,77 +227,81 @@ const PhatMongosMeals = () => {
   // ===================== GEMINI API FUNCTIONS =====================
 
   const callGeminiAPI = async (prompt) => {
-  if (!apiKey) {
-    throw new Error('API key required');
-  }
+    if (!apiKey) {
+      throw new Error('API key required');
+    }
 
-  const maxRetries = 3;
-  let lastError;
+    const maxRetries = 3;
+    let lastError;
 
-  for (let attempt = 1; attempt <= maxRetries; attempt++) {
-    try {
-      console.log(`Gemini API attempt ${attempt}/${maxRetries}`);
-      
-      const response = await fetch(`https://generativelanguage.googleapis.com/v1beta/models/gemini-1.5-flash:generateContent?key=${apiKey}`, {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-        },
-        body: JSON.stringify({
-          contents: [{
-            parts: [{
-              text: prompt
-            }]
-          }],
-          generationConfig: {
-            temperature: 0.7,
-            topK: 40,
-            topP: 0.95,
-            maxOutputTokens: 1024,
+    for (let attempt = 1; attempt <= maxRetries; attempt++) {
+      try {
+        console.log(`Gemini API attempt ${attempt}/${maxRetries}`);
+        
+        const response = await fetch(`https://generativelanguage.googleapis.com/v1beta/models/gemini-1.5-flash:generateContent?key=${apiKey}`, {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json',
+          },
+          body: JSON.stringify({
+            contents: [{
+              parts: [{
+                text: prompt
+              }]
+            }],
+            generationConfig: {
+              temperature: 0.7,
+              topK: 40,
+              topP: 0.95,
+              maxOutputTokens: 1024,
+            }
+          })
+        });
+
+        // Check response status
+        if (response.status === 429) {
+          const waitTime = Math.pow(2, attempt) * 1000; // Exponential backoff
+          console.log(`Rate limited. Waiting ${waitTime}ms before retry ${attempt}/${maxRetries}`);
+          if (attempt < maxRetries) {
+            await new Promise(resolve => setTimeout(resolve, waitTime));
+            continue;
           }
-        })
-      });
+        }
 
-      // Check response status
-      if (response.status === 429) {
-        const waitTime = Math.pow(2, attempt) * 1000; // Exponential backoff
-        console.log(`Rate limited. Waiting ${waitTime}ms before retry ${attempt}/${maxRetries}`);
-        if (attempt < maxRetries) {
+        if (!response.ok) {
+          const errorText = await response.text();
+          throw new Error(`API error: ${response.status} - ${errorText}`);
+        }
+
+        const data = await response.json();
+        
+        if (!data.candidates || !data.candidates[0] || !data.candidates[0].content) {
+          throw new Error('Invalid API response format');
+        }
+
+        return data.candidates[0].content.parts[0].text || '';
+        
+      } catch (error) {
+        lastError = error;
+        console.error(`Attempt ${attempt} failed:`, error.message);
+        
+        if (attempt < maxRetries && (error.message.includes('429') || error.message.includes('503'))) {
+          const waitTime = Math.pow(2, attempt) * 1000;
+          console.log(`Retrying in ${waitTime}ms...`);
           await new Promise(resolve => setTimeout(resolve, waitTime));
           continue;
         }
+        
+        break;
       }
-
-      if (!response.ok) {
-        const errorText = await response.text();
-        throw new Error(`API error: ${response.status} - ${errorText}`);
-      }
-
-      const data = await response.json();
-      
-      if (!data.candidates || !data.candidates[0] || !data.candidates[0].content) {
-        throw new Error('Invalid API response format');
-      }
-
-      return data.candidates[0].content.parts[0].text || '';
-      
-    } catch (error) {
-      lastError = error;
-      console.error(`Attempt ${attempt} failed:`, error.message);
-      
-      if (attempt < maxRetries && (error.message.includes('429') || error.message.includes('503'))) {
-        const waitTime = Math.pow(2, attempt) * 1000;
-        console.log(`Retrying in ${waitTime}ms...`);
-        await new Promise(resolve => setTimeout(resolve, waitTime));
-        continue;
-      }
-      
-      break;
     }
-  }
 
-  throw lastError;
-};
+    throw lastError;
+  };
+
+  const cleanJsonResponse = (response) => {
+    return response.replace(/```json\s*/g, '').replace(/```\s*$/g, '').trim();
+  };
 
   // ===================== RECIPE MANAGEMENT =====================
 
@@ -381,20 +385,21 @@ DO NOT include any text outside the JSON.`;
         setShowImportSuccess(false);
       }, 2000);
       
-   } catch (error) {
-  console.error('Import error:', error);
-  if (error.message.includes('API key')) {
-    setShowApiKeyModal(true);
-  } else if (error.message.includes('429')) {
-    alert('API rate limit reached. Please wait a moment and try again.');
-  } else if (error.message.includes('503')) {
-    alert('Gemini API is temporarily unavailable. Please try again in a few minutes.');
-  } else {
-    alert(`Failed to import recipe: ${error.message}`);
-  }
-} finally {
-  setIsImporting(false);
-}
+    } catch (error) {
+      console.error('Import error:', error);
+      if (error.message.includes('API key')) {
+        setShowApiKeyModal(true);
+      } else if (error.message.includes('429')) {
+        alert('API rate limit reached. Please wait a moment and try again.');
+      } else if (error.message.includes('503')) {
+        alert('Gemini API is temporarily unavailable. Please try again in a few minutes.');
+      } else {
+        alert(`Failed to import recipe: ${error.message}`);
+      }
+    } finally {
+      setIsImporting(false);
+    }
+  };
 
   // ===================== LONG PRESS HANDLERS =====================
 
